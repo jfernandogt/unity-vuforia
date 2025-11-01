@@ -34,9 +34,16 @@ public class QuestionManager : MonoBehaviour
     [SerializeField] private Transform cameraTransform;
     [SerializeField] private float modelDistance = 1.5f;
 
+    [Header("Game Cycle Settings")]
+    [SerializeField] private int requiredCorrectAnswers = 3;
+    [SerializeField] private TMP_Text scoreText;
+    [SerializeField] private GameObject winPanel;
+
     private Question currentQuestion;
     private bool waitingForAnswer = false;
     private List<TargetValidator> targetValidators = new List<TargetValidator>();
+    private int consecutiveCorrectAnswers = 0;
+    private bool gameWon = false;
 
     public static QuestionManager Instance { get; private set; }
 
@@ -75,8 +82,10 @@ public class QuestionManager : MonoBehaviour
 
         if (correctModel3D) correctModel3D.SetActive(false);
         if (incorrectModel3D) incorrectModel3D.SetActive(false);
+        if (winPanel) winPanel.SetActive(false);
 
         PrepareModelsForWorldSpace();
+        UpdateScoreDisplay();
 
         if (IsSystemReady())
         {
@@ -118,7 +127,7 @@ public class QuestionManager : MonoBehaviour
 
     public void ShowRandomQuestion()
     {
-        if (questions.Length == 0) return;
+        if (questions.Length == 0 || gameWon) return;
 
         currentQuestion = questions[Random.Range(0, questions.Length)];
 
@@ -142,11 +151,25 @@ public class QuestionManager : MonoBehaviour
 
     public void OnTargetDetected(string targetName)
     {
-        if (!waitingForAnswer || currentQuestion == null) return;
+        if (!waitingForAnswer || currentQuestion == null || gameWon) return;
 
         bool isCorrect = targetName.Equals(currentQuestion.correctAnswerTargetName, System.StringComparison.OrdinalIgnoreCase);
 
-        ShowFeedback(isCorrect, targetName);
+        if (isCorrect)
+        {
+            consecutiveCorrectAnswers++;
+            UpdateScoreDisplay();
+
+            if (consecutiveCorrectAnswers >= requiredCorrectAnswers)
+            {
+                gameWon = true;
+            }
+        }
+        else
+        {
+            consecutiveCorrectAnswers = 0;
+            UpdateScoreDisplay();
+        }
 
         if (audioSource)
         {
@@ -162,12 +185,29 @@ public class QuestionManager : MonoBehaviour
 
         waitingForAnswer = false;
 
-        StartCoroutine(ShowNextQuestionAfterDelay());
+        if (gameWon)
+        {
+            ShowWinMessage();
+        }
+        else
+        {
+            ShowFeedback(isCorrect, targetName);
+            StartCoroutine(ShowNextQuestionAfterDelay());
+        }
     }
 
     void ShowFeedback(bool isCorrect, string detectedTarget)
     {
-        string feedbackMessage = isCorrect ? "Correct!" : $"Incorrect. That's a: {detectedTarget}";
+        string feedbackMessage;
+        
+        if (isCorrect)
+        {
+            feedbackMessage = $"¡Correcto! ({consecutiveCorrectAnswers}/{requiredCorrectAnswers})";
+        }
+        else
+        {
+            feedbackMessage = $"Incorrecto. Ese es: {detectedTarget}. Contador reiniciado.";
+        }
 
         if (feedbackText)
         {
@@ -242,9 +282,58 @@ public class QuestionManager : MonoBehaviour
         }
     }
 
+    private void UpdateScoreDisplay()
+    {
+        if (scoreText != null)
+        {
+            scoreText.text = $"Respuestas correctas: {consecutiveCorrectAnswers}/{requiredCorrectAnswers}";
+        }
+    }
+
+    private void ShowWinMessage()
+    {
+        if (questionPanel) questionPanel.SetActive(false);
+        if (feedbackPanel) feedbackPanel.SetActive(false);
+        
+        if (winPanel)
+        {
+            winPanel.SetActive(true);
+        }
+        else if (feedbackText)
+        {
+            feedbackText.text = $"¡FELICIDADES! ¡Has ganado el juego!\n¡Conseguiste {requiredCorrectAnswers} respuestas correctas seguidas!";
+            feedbackPanel.SetActive(true);
+        }
+
+        if (correctModel3D)
+        {
+            PositionModelInFrontOfCamera(correctModel3D);
+            correctModel3D.SetActive(true);
+        }
+    }
+
+    public void RestartGame()
+    {
+        consecutiveCorrectAnswers = 0;
+        gameWon = false;
+        UpdateScoreDisplay();
+        
+        if (winPanel) winPanel.SetActive(false);
+        if (correctModel3D) correctModel3D.SetActive(false);
+        if (incorrectModel3D) incorrectModel3D.SetActive(false);
+        
+        ShowRandomQuestion();
+    }
+
     [ContextMenu("Show Random Question")]
     public void ForceNewQuestion()
     {
         ShowRandomQuestion();
+    }
+
+    [ContextMenu("Restart Game")]
+    public void ForceRestart()
+    {
+        RestartGame();
     }
 }
